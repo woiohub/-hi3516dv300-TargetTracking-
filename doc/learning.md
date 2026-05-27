@@ -331,3 +331,75 @@ JSON格式:
 - sample_comm_svp.c — SVP公共函数
 - sample_comm_nnie.c — NNIE公共函数
 - 等
+
+---
+
+## 8. 部署问题排查
+
+### 8.1 MMZ内存分配失败
+
+**错误现象：**
+```
+mmz_userdev:ioctl_mmb_alloc: hil_mmb_alloc(SAMPLE_NNIE_TAS, 15999856, 0x0, 0, ) failed!
+[Func]:hi_mpi_sys_mmz_alloc_cached [Line]:913 [Info]:system alloc mmz memory failed!
+[ERROR] NNIE参数初始化失败! s32Ret=0xffffffff
+```
+
+**原因分析：**
+
+NNIE引擎需要从MMZ(Media Memory Zone)分配约16MB的Task Buffer。分配失败说明MMZ内存不足。
+
+常见原因：
+1. **MMZ区域地址重叠** — load_ko.sh中配置了两个MMZ区域，如果起始地址有重叠会导致内存管理混乱
+2. **MMZ总量过大** — 超出实际DDR物理内存容量
+3. **MMZ未正确加载** — mmz.ko加载失败但错误被静默
+
+**解决方案：**
+
+修改 `scripts/load_ko.sh`，使用单个MMZ区域，分配合理大小：
+
+```bash
+# 错误配置(两个区域地址重叠)
+insmod mmz.ko mmz=anonymous,0,0x84000000,576M anony=1,0,0x8FA00000,64M
+
+# 正确配置(单区域，256MB足够)
+insmod mmz.ko mmz=anonymous,0,0x84000000,256M
+```
+
+**内存规划参考：**
+
+| 用途 | 大小 | 说明 |
+|------|------|------|
+| Linux内核+用户空间 | ~64MB | 0x80000000起始 |
+| MMZ区域 | 256MB | 0x84000000起始 |
+| NNIE Task Buffer | ~16MB | 从MMZ分配 |
+| VI/VPSS缓存 | ~50MB | 从MMZ分配 |
+| 剩余可用 | ~190MB | 其他MPP模块 |
+
+**排查命令：**
+```bash
+# 检查mmz.ko是否加载成功
+cat /proc/media-mem
+
+# 检查MMZ区域信息
+cat /proc/himedia/mmz
+```
+
+### 8.2 传感器初始化失败
+
+**错误现象：**
+```
+GC2053 init failed!
+```
+
+**排查步骤：**
+1. 检查MIPI排线是否松动
+2. 确认传感器供电正常
+3. 检查 `load_ko.sh` 中的sensor驱动是否匹配
+
+### 8.3 NNIE推理结果异常
+
+**可能原因：**
+1. 输入BGR数据格式不正确(检查NV21转BGR)
+2. 模型输入尺寸不匹配(必须416x416)
+3. 输出Blob维度与预期不符(检查启动日志中的Blob信息)

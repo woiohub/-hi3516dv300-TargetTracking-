@@ -4,8 +4,8 @@
 
 # 内存管理模块(mmz) - 配置MMZ内存区域
 # 参数说明: anonymous,0,起始地址,大小
-# 0x84000000起始,分配576MB给MMZ
-insmod mmz.ko mmz=anonymous,0,0x84000000,576M anony=1,0,0x8FA00000,64M 2>/dev/null
+# 0x84000000起始,分配256MB给MMZ(足够NNIE+视频处理使用)
+insmod mmz.ko mmz=anonymous,0,0x84000000,256M || echo "[ERROR] mmz.ko加载失败"
 
 # 系统基础模块
 insmod hi3516cv500_sys.ko 2>/dev/null
