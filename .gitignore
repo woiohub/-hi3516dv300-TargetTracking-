@@ -1,0 +1,44 @@
+# Build artifacts
+*.o
+*.d
+*.so
+*.a
+*.elf
+build/
+
+# Model weights (large files)
+*.pt
+*.onnx
+*.wk
+!model/data/nnie_model/*.wk
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# Datasets (too large for git)
+model/dataset/
+model/downloads/
+model/runs/
+
+# IDE / Tools
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large reference files
+*.pdf
+
+# Logs
+*.log

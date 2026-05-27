@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hi3516DV300 目标追踪系统</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+        }
+        .header {
+            background: #16213e;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #0f3460;
+        }
+        .header h1 { font-size: 20px; color: #e94560; }
+        .status {
+            display: flex;
+            gap: 20px;
+            font-size: 14px;
+        }
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #4ecca3;
+            animation: pulse 2s infinite;
+        }
+        .status-dot.error { background: #e94560; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .container {
+            display: flex;
+            padding: 20px;
+            gap: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .main-panel {
+            flex: 1;
+            min-width: 0;
+        }
+        .side-panel {
+            width: 350px;
+            flex-shrink: 0;
+        }
+        .card {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border: 1px solid #0f3460;
+        }
+        .card h3 {
+            font-size: 16px;
+            color: #e94560;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #0f3460;
+        }
+        .canvas-container {
+            position: relative;
+            background: #0a0a1a;
+            border-radius: 8px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+        }
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        .target-list {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .target-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            margin-bottom: 8px;
+            background: #1a1a2e;
+            border-radius: 8px;
+            border-left: 3px solid #4ecca3;
+            transition: transform 0.2s;
+        }
+        .target-item:hover { transform: translateX(5px); }
+        .target-id {
+            background: #e94560;
+            color: white;
+            border-radius: 50%;
+            width: 32px; height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 14px;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+        .target-info { flex: 1; }
+        .target-class { font-weight: bold; font-size: 15px; }
+        .target-detail { font-size: 12px; color: #888; margin-top: 3px; }
+        .target-confidence {
+            background: #0f3460;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: bold;
+            color: #4ecca3;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .stat-item {
+            background: #1a1a2e;
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #4ecca3;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+        }
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #555;
+            font-size: 14px;
+        }
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            color: #888;
+        }
+        .legend-color {
+            width: 12px; height: 12px;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Hi3516DV300 目标追踪系统</h1>
+        <div class="status">
+            <div class="status-item">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">连接中...</span>
+            </div>
+            <div class="status-item">帧: <strong id="frameCount">0</strong></div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="main-panel">
+            <!-- 视频/检测可视化区域 -->
+            <div class="card">
+                <h3>检测可视化 (416x416)</h3>
+                <div class="canvas-container">
+                    <canvas id="detectionCanvas" width="416" height="416"></canvas>
+                </div>
+                <div class="legend" id="legend"></div>
+            </div>
+
+            <!-- 统计信息 -->
+            <div class="card">
+                <h3>系统状态</h3>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-value" id="targetCount">0</div>
+                        <div class="stat-label">追踪目标数</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="fpsDisplay">0.0</div>
+                        <div class="stat-label">推理FPS</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="detCount">0</div>
+                        <div class="stat-label">检测目标数</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="uptime">0s</div>
+                        <div class="stat-label">运行时间</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="side-panel">
+            <!-- 追踪目标列表 -->
+            <div class="card">
+                <h3>追踪目标</h3>
+                <div class="target-list" id="targetList">
+                    <div class="no-data">等待数据...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 检测框颜色表(不同类别不同颜色)
+        const COLORS = [
+            '#e94560', '#4ecca3', '#3498db', '#f39c12', '#9b59b6',
+            '#1abc9c', '#e74c3c', '#2ecc71', '#e67e22', '#8e44ad'
+        ];
+
+        const canvas = document.getElementById('detectionCanvas');
+        const ctx = canvas.getContext('2d');
+        let startTime = Date.now();
+        let lastData = null;
+
+        // 每秒轮询检测结果
+        function fetchDetections() {
+            fetch('/api/detections')
+                .then(r => r.json())
+                .then(data => {
+                    lastData = data;
+                    updateUI(data);
+                    updateStatus(true);
+                })
+                .catch(err => {
+                    updateStatus(false);
+                    console.error('获取数据失败:', err);
+                });
+        }
+
+        function updateStatus(connected) {
+            const dot = document.getElementById('statusDot');
+            const text = document.getElementById('statusText');
+            if (connected) {
+                dot.classList.remove('error');
+                text.textContent = '已连接';
+            } else {
+                dot.classList.add('error');
+                text.textContent = '连接失败';
+            }
+        }
+
+        function updateUI(data) {
+            // 更新统计
+            document.getElementById('frameCount').textContent = data.frame_count;
+            document.getElementById('targetCount').textContent = data.target_count;
+            document.getElementById('fpsDisplay').textContent = data.fps.toFixed(1);
+            document.getElementById('detCount').textContent = data.target_count;
+
+            const uptimeSec = Math.floor((Date.now() - startTime) / 1000);
+            document.getElementById('uptime').textContent =
+                uptimeSec < 60 ? uptimeSec + 's' :
+                uptimeSec < 3600 ? Math.floor(uptimeSec/60) + 'm' :
+                Math.floor(uptimeSec/3600) + 'h' + Math.floor((uptimeSec%3600)/60) + 'm';
+
+            // 绘制检测框
+            drawDetections(data.targets);
+
+            // 更新目标列表
+            updateTargetList(data.targets);
+        }
+
+        function drawDetections(targets) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 绘制网格背景
+            ctx.strokeStyle = '#1a1a2e';
+            ctx.lineWidth = 0.5;
+            for (let i = 0; i < 416; i += 32) {
+                ctx.beginPath();
+                ctx.moveTo(i, 0); ctx.lineTo(i, 416);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(0, i); ctx.lineTo(416, i);
+                ctx.stroke();
+            }
+
+            // 绘制检测框
+            targets.forEach((t, idx) => {
+                const color = COLORS[t.class_id % COLORS.length];
+                const x = t.cx - t.w / 2;
+                const y = t.cy - t.h / 2;
+
+                // 绘制边界框
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, t.w, t.h);
+
+                // 绘制标签背景
+                const label = `ID:${t.id} ${t.class} ${(t.confidence * 100).toFixed(0)}%`;
+                ctx.font = '12px sans-serif';
+                const textWidth = ctx.measureText(label).width;
+                ctx.fillStyle = color;
+                ctx.fillRect(x, y - 18, textWidth + 8, 18);
+
+                // 绘制标签文字
+                ctx.fillStyle = '#fff';
+                ctx.fillText(label, x + 4, y - 5);
+
+                // 绘制中心点
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(t.cx, t.cy, 3, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        function updateTargetList(targets) {
+            const list = document.getElementById('targetList');
+            if (!targets || targets.length === 0) {
+                list.innerHTML = '<div class="no-data">未检测到目标</div>';
+                return;
+            }
+
+            list.innerHTML = targets.map(t => `
+                <div class="target-item" style="border-left-color: ${COLORS[t.class_id % COLORS.length]}">
+                    <div class="target-id">${t.id}</div>
+                    <div class="target-info">
+                        <div class="target-class">${t.class}</div>
+                        <div class="target-detail">
+                            位置: (${t.cx.toFixed(0)}, ${t.cy.toFixed(0)}) |
+                            尺寸: ${t.w.toFixed(0)}x${t.h.toFixed(0)} |
+                            帧数: ${t.age}
+                        </div>
+                    </div>
+                    <div class="target-confidence">${(t.confidence * 100).toFixed(0)}%</div>
+                </div>
+            `).join('');
+        }
+
+        // 启动轮询
+        fetchDetections();
+        setInterval(fetchDetections, 1000);
+    </script>
+</body>
+</html>
