@@ -491,12 +491,20 @@ sh ./scripts/load_ko.sh
 sh ./scripts/load_ko.sh --force
 ```
 
-卸载顺序（依赖反序）:
+卸载顺序（严格按照SDK官方 remove_ko() 函数）:
 ```
-svprt → ive → hdmi → vo → jpege → h265e → h264e → venc → rc → vedu → chnl
-→ tde → nnie → vpss → mipi_rx → sensor_spi → sensor_i2c → isp → vi
-→ sys → base → hi_osal → sys_config
+音频: acodec → adec → aenc → ao → ai → aio
+外设: mipi_rx → piris → pwm
+NNIE: nnie → ive → svprt
+解码: jpegd → vfmw → vdec
+编码: rc → jpege → h264e → h265e → venc → vedu → chnl
+显示: hifb → vo → hdmi
+视频: vpss → isp → vi → gdc → dis → vgs → rgn → tde
+传感器: sensor_i2c → sensor_spi
+系统: sys → base → hi_osal → sys_config
 ```
+
+**重要警告:** 运行时卸载模块可能导致Kernel Panic。建议重启开发板后立即执行 `--force`。
 
 MMZ（Media Memory Zone）是海思芯片特有的物理连续内存管理机制：
 

@@ -181,15 +181,41 @@ MMZ是物理连续内存分配器。虽然总空闲111MB，但可能存在以下
 修改 `load_ko.sh`:
 
 1. **添加 `--force` 参数** — 强制卸载所有模块后重新加载
-2. **添加 `unload_all()` 函数** — 按依赖反序卸载所有模块
+2. **添加 `unload_all()` 函数** — 严格按照SDK官方 `remove_ko()` 顺序卸载所有模块
 3. **自动检测MMZ配置** — 检查当前MMZ是否匹配期望配置
-4. **不匹配时自动重载** — 无需手动加 `--force`
+4. **不匹配时提示用户** — 给出重启和修改启动脚本的建议
 
 ```bash
 # 使用方法
-sh ./scripts/load_ko.sh           # 自动检测，MMZ不匹配时自动重载
-sh ./scripts/load_ko.sh --force   # 强制卸载后重新加载
+sh ./scripts/load_ko.sh           # 自动检测，MMZ不匹配时给出提示
+sh ./scripts/load_ko.sh --force   # 强制卸载后重新加载(需重启后使用!)
 ```
+
+### 重要警告
+
+`--force` 模式会在运行时卸载所有内核模块。如果系统已运行其他MPP程序，直接卸载可能导致**内核崩溃(Kernel Panic)**。
+
+**安全使用方法:**
+1. 重启开发板: `reboot`
+2. 重启后立即执行: `sh ./scripts/load_ko.sh --force`
+3. 然后运行程序
+
+### 问题3: 卸载模块导致Kernel Panic
+
+**错误现象:**
+```
+Unable to handle kernel NULL pointer dereference at virtual address 00000000
+PC is at _raw_spin_lock_irqsave+0x10/0x4c
+Kernel panic - not syncing: Fatal exception in interrupt
+```
+
+**原因分析:**
+
+初次实现的 `unload_all()` 函数只卸载了部分模块，遗漏了 `hifb`、`rgn`、`gdc`、`vgs`、`dis`、`vdec`、`vfmw`、`jpegd`、`hdmi`、音频模块等。当 `hi3516cv500_chnl` 被卸载后，其他仍加载的模块（如 `tde`、`rgn`）尝试访问已释放的资源，导致空指针解引用。
+
+**解决方案:**
+
+严格按照SDK官方 `load3516dv300` 脚本中的 `remove_ko()` 函数顺序卸载所有模块。卸载顺序是加载顺序的严格反序。
 
 ### 验证
 

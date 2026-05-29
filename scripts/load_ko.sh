@@ -3,10 +3,12 @@
 # 基于SDK官方 load3516dv300 脚本改写，适配GC2053传感器
 #
 # 使用方法:
-#   sh ./scripts/load_ko.sh          # 正常加载(如已加载则跳过)
-#   sh ./scripts/load_ko.sh --force  # 强制卸载后重新加载(修改MMZ配置时使用)
+#   sh ./scripts/load_ko.sh          # 加载模块(已加载则检查MMZ配置)
+#   sh ./scripts/load_ko.sh --force  # 强制卸载后重新加载(需重启后使用!)
 #
-# 注意: 需要先将SDK的 mpp/ko/ 目录复制到开发板 /ko/ 目录
+# 重要: --force 会在运行时卸载所有内核模块，可能导致系统不稳定。
+#       建议仅在系统刚启动、尚未运行应用程序时使用。
+#       如果系统已运行其他MPP程序，请先重启开发板再使用 --force。
 
 #################### 可配置变量 ########################
 KO_DIR="${KO_DIR:-/ko}"                       # 内核模块目录
@@ -35,61 +37,128 @@ fi
 
 cd "$KO_DIR"
 
+# 卸载所有模块(严格按照SDK官方 remove_ko() 顺序)
 unload_all()
 {
     echo "=== 卸载已加载的内核模块 ==="
-    # 按依赖反序卸载
-    rmmod hi3516cv500_svprt 2>/dev/null
+    echo "  [WARN] 卸载内核模块可能导致系统不稳定"
+    echo ""
+
+    # 音频模块
+    rmmod hi3516cv500_acodec 2>/dev/null
+    rmmod hi3516cv500_adec 2>/dev/null
+    rmmod hi3516cv500_aenc 2>/dev/null
+    rmmod hi3516cv500_ao 2>/dev/null
+    rmmod hi3516cv500_ai 2>/dev/null
+    rmmod hi3516cv500_aio 2>/dev/null
+    echo "  音频模块已卸载"
+
+    # MIPI/传感器/外设
+    rmmod hi_mipi_rx 2>/dev/null
+    rmmod hi_piris 2>/dev/null
+    rmmod hi_pwm 2>/dev/null
+    echo "  MIPI/外设模块已卸载"
+
+    # NNIE/IVE/SVP
+    rmmod hi3516cv500_nnie 2>/dev/null
     rmmod hi3516cv500_ive 2>/dev/null
-    rmmod hi3516cv500_hdmi 2>/dev/null
-    rmmod hi3516cv500_vo 2>/dev/null
-    rmmod hi3516cv500_jpege 2>/dev/null
-    rmmod hi3516cv500_h265e 2>/dev/null
-    rmmod hi3516cv500_h264e 2>/dev/null
-    rmmod hi3516cv500_venc 2>/dev/null
+    rmmod hi3516cv500_svprt 2>/dev/null
+    echo "  NNIE/SVP模块已卸载"
+
+    # 视频解码
+    rmmod hi3516cv500_jpegd 2>/dev/null
+    rmmod hi3516cv500_vfmw 2>/dev/null
+    rmmod hi3516cv500_vdec 2>/dev/null
+    echo "  视频解码模块已卸载"
+
+    # 视频编码
     rmmod hi3516cv500_rc 2>/dev/null
+    rmmod hi3516cv500_jpege 2>/dev/null
+    rmmod hi3516cv500_h264e 2>/dev/null
+    rmmod hi3516cv500_h265e 2>/dev/null
+    rmmod hi3516cv500_venc 2>/dev/null
     rmmod hi3516cv500_vedu 2>/dev/null
     rmmod hi3516cv500_chnl 2>/dev/null
-    rmmod hi3516cv500_tde 2>/dev/null
-    rmmod hi3516cv500_nnie 2>/dev/null
+    echo "  视频编码模块已卸载"
+
+    # 显示/图形
+    rmmod hifb 2>/dev/null
+    rmmod hi3516cv500_vo 2>/dev/null
+    rmmod hi3516cv500_hdmi 2>/dev/null
+    echo "  显示模块已卸载"
+
+    # 视频处理
     rmmod hi3516cv500_vpss 2>/dev/null
-    rmmod hi_mipi_rx 2>/dev/null
-    rmmod extdrv/hi_sensor_spi 2>/dev/null
-    rmmod hi_sensor_spi 2>/dev/null
-    rmmod extdrv/hi_sensor_i2c 2>/dev/null
-    rmmod hi_sensor_i2c 2>/dev/null
     rmmod hi3516cv500_isp 2>/dev/null
     rmmod hi3516cv500_vi 2>/dev/null
+    rmmod hi3516cv500_gdc 2>/dev/null
+    rmmod hi3516cv500_dis 2>/dev/null
+    rmmod hi3516cv500_vgs 2>/dev/null
+    rmmod hi3516cv500_rgn 2>/dev/null
+    rmmod hi3516cv500_tde 2>/dev/null
+    echo "  视频处理模块已卸载"
+
+    # 传感器驱动
+    rmmod hi_sensor_i2c 2>/dev/null
+    rmmod hi_sensor_spi 2>/dev/null
+    echo "  传感器驱动已卸载"
+
+    # 系统基础
     rmmod hi3516cv500_sys 2>/dev/null
     rmmod hi3516cv500_base 2>/dev/null
     rmmod hi_osal 2>/dev/null
     rmmod sys_config 2>/dev/null
+    echo "  系统模块已卸载"
+
     echo "  卸载完成"
     echo ""
 }
 
-# 检查是否需要强制重载
+# 检查当前MMZ配置
+check_mmz()
+{
+    if [ ! -f /proc/media-mem ]; then
+        return 1  # MMZ未初始化
+    fi
+    # 检查MMZ起始地址是否匹配
+    if grep -qi "$(echo $mmz_start | tr 'a-f' 'A-F')" /proc/media-mem 2>/dev/null; then
+        return 0  # 匹配
+    fi
+    return 1  # 不匹配
+}
+
+# 主逻辑
 if [ "$FORCE" -eq 1 ]; then
+    # 强制模式: 卸载后重新加载
     unload_all
 else
-    # 检查hi_osal.ko是否已加载(代表所有模块已加载)
+    # 检查模块是否已加载
     if grep -q "^hi_osal" /proc/modules 2>/dev/null; then
-        # 检查MMZ配置是否匹配
-        current_mmz=$(cat /proc/media-mem 2>/dev/null | grep "PHYS(0x" | head -1)
-        expected_start=$(echo "$mmz_start" | sed 's/0x/0x/' | tr 'a-f' 'A-F')
-        if echo "$current_mmz" | grep -qi "$mmz_start"; then
-            echo "=== 内核模块已加载，MMZ配置匹配 ==="
+        if check_mmz; then
+            echo "=== 内核模块已加载，MMZ配置正确 ==="
+            echo "  MMZ: $(grep 'PHYS(' /proc/media-mem | head -1 | grep -o 'PHYS([^)]*)')"
             echo "  如需重新加载请使用: sh $0 --force"
-            echo ""
-            cat /proc/media-mem | head -5
             exit 0
         else
-            echo "[WARN] MMZ配置不匹配，需要重新加载"
-            echo "  当前: $(echo "$current_mmz" | grep -o 'PHYS([^)]*)')"
+            current_mmz=$(grep 'PHYS(' /proc/media-mem 2>/dev/null | head -1 | grep -o 'PHYS([^)]*)')
+            echo "[ERROR] MMZ配置不匹配!"
+            echo "  当前: $current_mmz"
             echo "  期望: PHYS($mmz_start, ...)"
-            echo "  执行强制重载..."
             echo ""
-            unload_all
+            echo "  开发板启动时已使用默认MMZ配置加载了内核模块。"
+            echo "  要应用新配置，请执行以下操作之一:"
+            echo ""
+            echo "  方案1: 重启开发板后运行(推荐)"
+            echo "    reboot"
+            echo "    # 重启后执行:"
+            echo "    sh $0 --force"
+            echo ""
+            echo "  方案2: 修改开发板启动脚本"
+            echo "    编辑 /etc/init.d/rcS 或相关启动脚本"
+            echo "    将MMZ参数修改为: mmz=anonymous,0,$mmz_start,$mmz_size"
+            echo "    然后重启开发板"
+            echo ""
+            exit 1
         fi
     fi
 fi
@@ -162,7 +231,4 @@ if [ -f /proc/media-mem ]; then
     echo ""
     echo "=== MMZ内存信息 ==="
     cat /proc/media-mem | head -5
-    echo ""
-    echo "  如MMZ配置不正确，请使用 --force 重新加载:"
-    echo "  sh $0 --force"
 fi
