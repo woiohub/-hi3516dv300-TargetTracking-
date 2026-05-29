@@ -77,7 +77,7 @@ HI_S32 VIDEO_CAPTURE_Init(VIDEO_CAPTURE_CTX_S* pstCtx)
     PIXEL_FORMAT_E enPixFormat = PIXEL_FORMAT_YVU_SEMIPLANAR_420;
     VIDEO_FORMAT_E enVideoFormat = VIDEO_FORMAT_LINEAR;
     COMPRESS_MODE_E enCompressMode = COMPRESS_MODE_NONE;
-    VI_VPSS_MODE_E enMastPipeMode = VI_OFFLINE_VPSS_OFFLINE;
+    VI_VPSS_MODE_E enMastPipeMode = VI_ONLINE_VPSS_ONLINE;
 
     VPSS_GRP_ATTR_S stVpssGrpAttr;
     VPSS_CHN_ATTR_S astVpssChnAttr[VPSS_MAX_PHY_CHN_NUM];
@@ -85,30 +85,12 @@ HI_S32 VIDEO_CAPTURE_Init(VIDEO_CAPTURE_CTX_S* pstCtx)
 
     LOG_INFO("视频采集模块初始化...");
 
-    /* 清理板级启动脚本已初始化的管道(避免冲突) */
-    LOG_INFO("清理已有MPP管道...");
-    SAMPLE_COMM_VI_UnBind_VPSS(0, 0, 0);
-    {
-        SAMPLE_VI_CONFIG_S stViCfg;
-        memset(&stViCfg, 0, sizeof(stViCfg));
-        SAMPLE_COMM_VI_GetSensorInfo(&stViCfg);
-        SAMPLE_COMM_VI_StopVi(&stViCfg);
-    }
-    {
-        HI_BOOL abChn[VPSS_MAX_PHY_CHN_NUM] = {0};
-        abChn[0] = HI_TRUE;
-        abChn[1] = HI_TRUE;
-        SAMPLE_COMM_VPSS_Stop(0, abChn);
-    }
-    SAMPLE_COMM_SYS_Exit();
-    usleep(200000);  /* 等待200ms让资源完全释放 */
-
     /* 初始化上下文 */
     pstCtx->ViDev = 0;
     pstCtx->ViPipe = 0;
     pstCtx->ViChn = 0;
     pstCtx->VpssGrp = 0;
-    pstCtx->VpssChn = VPSS_CHN1;  /* 通道1: 416x416 NNIE输入 */
+    pstCtx->VpssChn = VPSS_CHN0;  /* 通道0: 原始尺寸(软件缩放到NNIE尺寸) */
     pstCtx->stNnieSize.u32Width = NNIE_INPUT_WIDTH;
     pstCtx->stNnieSize.u32Height = NNIE_INPUT_HEIGHT;
     pstCtx->bStarted = HI_FALSE;
@@ -192,7 +174,7 @@ HI_S32 VIDEO_CAPTURE_Init(VIDEO_CAPTURE_CTX_S* pstCtx)
     stVpssGrpAttr.stNrAttr.enCompressMode = COMPRESS_MODE_FRAME;
     stVpssGrpAttr.stNrAttr.enNrMotionMode = NR_MOTION_MODE_NORMAL;
 
-    /* VPSS通道0: 原始尺寸 */
+    /* VPSS通道0: 原始尺寸(NNIE推理用，软件缩放到416x416) */
     memset(astVpssChnAttr, 0, sizeof(astVpssChnAttr));
     astVpssChnAttr[VPSS_CHN0].u32Width = stSize.u32Width;
     astVpssChnAttr[VPSS_CHN0].u32Height = stSize.u32Height;
@@ -201,23 +183,10 @@ HI_S32 VIDEO_CAPTURE_Init(VIDEO_CAPTURE_CTX_S* pstCtx)
     astVpssChnAttr[VPSS_CHN0].enDynamicRange = enDynamicRange;
     astVpssChnAttr[VPSS_CHN0].enVideoFormat = enVideoFormat;
     astVpssChnAttr[VPSS_CHN0].enCompressMode = enCompressMode;
-    astVpssChnAttr[VPSS_CHN0].stFrameRate.s32SrcFrameRate = VIDEO_FPS;
-    astVpssChnAttr[VPSS_CHN0].stFrameRate.s32DstFrameRate = VIDEO_FPS;
-    astVpssChnAttr[VPSS_CHN0].u32Depth = 2;
+    astVpssChnAttr[VPSS_CHN0].stFrameRate.s32SrcFrameRate = 30;
+    astVpssChnAttr[VPSS_CHN0].stFrameRate.s32DstFrameRate = 30;
+    astVpssChnAttr[VPSS_CHN0].u32Depth = 0;
     abChnEnable[VPSS_CHN0] = HI_TRUE;
-
-    /* VPSS通道1: NNIE推理尺寸(416x416) */
-    astVpssChnAttr[VPSS_CHN1].u32Width = NNIE_INPUT_WIDTH;
-    astVpssChnAttr[VPSS_CHN1].u32Height = NNIE_INPUT_HEIGHT;
-    astVpssChnAttr[VPSS_CHN1].enChnMode = VPSS_CHN_MODE_USER;
-    astVpssChnAttr[VPSS_CHN1].enPixelFormat = enPixFormat;
-    astVpssChnAttr[VPSS_CHN1].enDynamicRange = enDynamicRange;
-    astVpssChnAttr[VPSS_CHN1].enVideoFormat = enVideoFormat;
-    astVpssChnAttr[VPSS_CHN1].enCompressMode = enCompressMode;
-    astVpssChnAttr[VPSS_CHN1].stFrameRate.s32SrcFrameRate = VIDEO_FPS;
-    astVpssChnAttr[VPSS_CHN1].stFrameRate.s32DstFrameRate = INFER_FPS;
-    astVpssChnAttr[VPSS_CHN1].u32Depth = 2;
-    abChnEnable[VPSS_CHN1] = HI_TRUE;
 
     /* 启动VPSS */
     s32Ret = SAMPLE_COMM_VPSS_Start(pstCtx->VpssGrp, abChnEnable,
@@ -274,9 +243,9 @@ HI_S32 VIDEO_CAPTURE_GetFrame(VIDEO_CAPTURE_CTX_S* pstCtx, HI_U8* pu8BgrBuf, HI_
         return HI_FAILURE;
     }
 
-    /* 从VPSS通道1获取NNIE尺寸的帧 */
+    /* 从VPSS通道获取帧 */
     s32Ret = HI_MPI_VPSS_GetChnFrame(pstCtx->VpssGrp, pstCtx->VpssChn,
-        &stFrameInfo, 1000);  /* 超时1000ms */
+        &stFrameInfo, 2000);  /* 超时2000ms */
     if (HI_SUCCESS != s32Ret) {
         LOG_ERROR("获取VPSS帧失败! s32Ret=0x%x", s32Ret);
         return s32Ret;
