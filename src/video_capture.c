@@ -77,13 +77,31 @@ HI_S32 VIDEO_CAPTURE_Init(VIDEO_CAPTURE_CTX_S* pstCtx)
     PIXEL_FORMAT_E enPixFormat = PIXEL_FORMAT_YVU_SEMIPLANAR_420;
     VIDEO_FORMAT_E enVideoFormat = VIDEO_FORMAT_LINEAR;
     COMPRESS_MODE_E enCompressMode = COMPRESS_MODE_NONE;
-    VI_VPSS_MODE_E enMastPipeMode = VI_ONLINE_VPSS_ONLINE;
+    VI_VPSS_MODE_E enMastPipeMode = VI_OFFLINE_VPSS_OFFLINE;
 
     VPSS_GRP_ATTR_S stVpssGrpAttr;
     VPSS_CHN_ATTR_S astVpssChnAttr[VPSS_MAX_PHY_CHN_NUM];
     HI_BOOL abChnEnable[VPSS_MAX_PHY_CHN_NUM] = {0};
 
     LOG_INFO("视频采集模块初始化...");
+
+    /* 清理板级启动脚本已初始化的管道(避免冲突) */
+    LOG_INFO("清理已有MPP管道...");
+    SAMPLE_COMM_VI_UnBind_VPSS(0, 0, 0);
+    {
+        SAMPLE_VI_CONFIG_S stViCfg;
+        memset(&stViCfg, 0, sizeof(stViCfg));
+        SAMPLE_COMM_VI_GetSensorInfo(&stViCfg);
+        SAMPLE_COMM_VI_StopVi(&stViCfg);
+    }
+    {
+        HI_BOOL abChn[VPSS_MAX_PHY_CHN_NUM] = {0};
+        abChn[0] = HI_TRUE;
+        abChn[1] = HI_TRUE;
+        SAMPLE_COMM_VPSS_Stop(0, abChn);
+    }
+    SAMPLE_COMM_SYS_Exit();
+    usleep(200000);  /* 等待200ms让资源完全释放 */
 
     /* 初始化上下文 */
     pstCtx->ViDev = 0;
