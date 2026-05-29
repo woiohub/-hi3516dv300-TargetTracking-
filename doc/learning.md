@@ -467,7 +467,36 @@ hi3516cv500_vpss.ko  ← 视频处理子系统
 hi3516cv500_nnie.ko  ← NNIE推理引擎（依赖MMZ）
 ```
 
-### 9.2 MMZ内存管理
+### 9.2 板级启动与MMZ配置
+
+开发板在启动时会通过系统初始化脚本（如 `/etc/init.d/rcS`）自动加载内核模块，使用的是板级默认MMZ配置。这意味着:
+
+1. **所有模块在启动时已加载** — 我们的脚本检测到模块已加载会跳过
+2. **MMZ使用板级默认配置** — 通常是 `0x88000000, 128MB`，而不是我们需要的 `0x84000000, 192MB`
+3. **hi_osal.ko 不会重新加载** — insmod 检测到已加载会返回错误
+
+**为什么板级默认128MB不够?**
+
+板级默认配置的128MB MMZ中，启动时已分配了大量内存（ISP、VPSS、hifb等），剩余空间不足以满足NNIE的Task Buffer分配（~15MB）。
+
+**解决方案:**
+
+必须先卸载所有模块，再用我们的配置重新加载:
+
+```bash
+# 自动检测MMZ配置，不匹配时自动重载
+sh ./scripts/load_ko.sh
+
+# 或强制重载
+sh ./scripts/load_ko.sh --force
+```
+
+卸载顺序（依赖反序）:
+```
+svprt → ive → hdmi → vo → jpege → h265e → h264e → venc → rc → vedu → chnl
+→ tde → nnie → vpss → mipi_rx → sensor_spi → sensor_i2c → isp → vi
+→ sys → base → hi_osal → sys_config
+```
 
 MMZ（Media Memory Zone）是海思芯片特有的物理连续内存管理机制：
 
@@ -490,7 +519,7 @@ MMZ（Media Memory Zone）是海思芯片特有的物理连续内存管理机制
 0x90000000 └─────────────────────┘
 ```
 
-### 9.3 部署流程
+### 9.4 部署流程
 
 SDK的内核模块文件位于开发主机的SDK目录中：
 ```
@@ -502,7 +531,7 @@ SDK的内核模块文件位于开发主机的SDK目录中：
 scp -r <SDK_PATH>/smp/a7_linux/mpp/ko/ root@<board_ip>:/ko/
 ```
 
-### 9.4 常用排查命令
+### 9.5 常用排查命令
 
 ```bash
 # 查看已加载模块

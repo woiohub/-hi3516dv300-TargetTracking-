@@ -88,14 +88,21 @@ scp -r build scripts/ model/data/ web/ root@<开发板IP>:/mnt/nfs/TargetTrackin
 cd /mnt/nfs/TargetTracking
 chmod +x scripts/load_ko.sh build/sample_target_tracking
 
-# 加载内核模块
+# 加载内核模块(首次或MMZ配置不匹配时自动重载)
 sh ./scripts/load_ko.sh
+
+# 如果提示MMZ配置不匹配，使用 --force 强制重载
+sh ./scripts/load_ko.sh --force
 
 # 运行程序
 ./build/sample_target_tracking ./data/nnie_model/yolov3.wk 8080 ./web
 ```
 
-> **注意:** `load_ko.sh` 会自动从 `/ko/` 目录加载SDK内核模块。如果模块目录不在 `/ko/`，可通过环境变量指定: `KO_DIR=/path/to/ko sh ./scripts/load_ko.sh`
+> **注意:**
+> - `load_ko.sh` 会自动从 `/ko/` 目录加载SDK内核模块
+> - 如果模块目录不在 `/ko/`，可通过环境变量指定: `KO_DIR=/path/to/ko sh ./scripts/load_ko.sh`
+> - 开发板启动时会自动加载模块(使用板级默认MMZ配置)，首次运行脚本时会自动检测并重载为正确配置
+> - 如遇MMZ内存分配失败，使用 `sh ./scripts/load_ko.sh --force` 强制重载
 
 ### 访问Web页面
 
