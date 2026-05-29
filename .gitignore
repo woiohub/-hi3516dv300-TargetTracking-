@@ -29,6 +29,8 @@ model/runs/
 .vscode/
 .idea/
 .claude/
+!.claude/skills/
+!CLAUDE.md
 *.swp
 *.swo
 *~
