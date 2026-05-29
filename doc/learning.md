@@ -403,3 +403,117 @@ GC2053 init failed!
 1. 输入BGR数据格式不正确(检查NV21转BGR)
 2. 模型输入尺寸不匹配(必须416x416)
 3. 输出Blob维度与预期不符(检查启动日志中的Blob信息)
+
+### 8.4 mmz.ko加载失败
+
+**错误现象：**
+```
+insmod: can't insert 'mmz.ko': No such file or directory
+[ERROR] mmz.ko加载失败
+```
+
+**原因分析：**
+
+在Hi3516CV500 SDK V2.0.2.0中，**不存在独立的 `mmz.ko` 模块**。MMZ（Media Memory Zone）内存管理已集成到 `hi_osal.ko` 中。
+
+SDK版本演进：
+- 旧版SDK（如Hi3516CV300）：MMZ由独立的 `mmz.ko` 管理
+- SDK V2.0.2.0（本项目）：MMZ由 `hi_osal.ko` 的 `mmz=` 参数配置
+
+**解决方案：**
+
+使用 `hi_osal.ko` 替代 `mmz.ko`：
+```bash
+# 错误（mmz.ko不存在）
+insmod mmz.ko mmz=anonymous,0,0x84000000,256M
+
+# 正确（使用hi_osal.ko）
+insmod hi_osal.ko anony=1 mmz_allocator=hisi mmz=anonymous,0,0x84000000,192M
+```
+
+**加载顺序（参考SDK官方 load3516dv300 脚本）：**
+```
+sys_config.ko → hi_osal.ko → hi3516cv500_base.ko → hi3516cv500_sys.ko
+→ hi3516cv500_vi.ko → hi3516cv500_isp.ko → hi_mipi_rx.ko
+→ hi3516cv500_vpss.ko → hi3516cv500_nnie.ko → 其他模块
+```
+
+---
+
+## 9. 内核模块加载
+
+### 9.1 模块架构
+
+Hi3516DV300的MPP（媒体处理平台）基于内核模块实现，各模块有严格的依赖关系：
+
+```
+sys_config.ko        ← 芯片类型、传感器类型配置
+    ↓
+hi_osal.ko           ← OS抽象层 + MMZ内存管理
+    ↓
+hi3516cv500_base.ko  ← 基础驱动
+    ↓
+hi3516cv500_sys.ko   ← 系统模块（VB视频缓存池等）
+    ↓
+┌───────────────────────────────────────────┐
+│  hi3516cv500_vi.ko    视频输入            │
+│  hi3516cv500_isp.ko   图像信号处理        │
+│  hi_mipi_rx.ko        MIPI接收器          │
+│  extdrv/hi_sensor_*.ko 传感器驱动         │
+└───────────────────────────────────────────┘
+    ↓
+hi3516cv500_vpss.ko  ← 视频处理子系统
+    ↓
+hi3516cv500_nnie.ko  ← NNIE推理引擎（依赖MMZ）
+```
+
+### 9.2 MMZ内存管理
+
+MMZ（Media Memory Zone）是海思芯片特有的物理连续内存管理机制：
+
+| 特性 | 说明 |
+|------|------|
+| 用途 | NNIE模型加载、VI/VPSS帧缓存、VENC编码缓存 |
+| 分配方式 | 物理连续内存，通过 `HI_MPI_SYS_MmzAlloc` 分配 |
+| 地址空间 | 独立于Linux内核管理的内存 |
+| 典型大小 | 192MB~384MB（取决于DDR总容量） |
+
+**内存规划（256MB DDR）：**
+```
+0x80000000 ┌─────────────────────┐
+           │ Linux内核+用户空间   │ 64MB
+0x84000000 ├─────────────────────┤
+           │ MMZ区域              │ 192MB
+           │  ├── NNIE Task: 16MB │
+           │  ├── VI/VPSS: 50MB   │
+           │  └── 其他: 126MB     │
+0x90000000 └─────────────────────┘
+```
+
+### 9.3 部署流程
+
+SDK的内核模块文件位于开发主机的SDK目录中：
+```
+/home/woio/hisi/Hi3516CV500_SDK_V2.0.2.0/smp/a7_linux/mpp/ko/
+```
+
+需要将整个 `ko/` 目录复制到开发板：
+```bash
+scp -r <SDK_PATH>/smp/a7_linux/mpp/ko/ root@<board_ip>:/ko/
+```
+
+### 9.4 常用排查命令
+
+```bash
+# 查看已加载模块
+lsmod
+
+# 查看MMZ内存使用情况
+cat /proc/media-mem
+
+# 查看MMZ区域信息
+cat /proc/himedia/mmz
+
+# 查看内核日志（模块加载错误）
+dmesg | tail -50
+```

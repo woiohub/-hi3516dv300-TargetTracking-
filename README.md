@@ -65,21 +65,37 @@ make
 
 ### 部署到开发板
 
+**第一步: 复制SDK内核模块到开发板**
+
+内核模块(`.ko`文件)需要从SDK目录单独复制到开发板的 `/ko/` 目录：
+
+```bash
+# 在PC上执行，将SDK内核模块复制到开发板
+scp -r /home/woio/hisi/Hi3516CV500_SDK_V2.0.2.0/smp/a7_linux/mpp/ko/ root@<开发板IP>:/ko/
+```
+
+**第二步: 复制项目文件到开发板**
+
 ```bash
 # 方式1: NFS挂载(推荐开发阶段使用)
 # 方式2: SCP传输
-scp -r build/sample_target_tracking scripts/ model/data/ web/ root@<开发板IP>:/opt/target_tracking/
+scp -r build scripts/ model/data/ web/ root@<开发板IP>:/mnt/nfs/TargetTracking/
+```
 
-# 在开发板上执行
-cd /opt/target_tracking
+**第三步: 在开发板上执行**
+
+```bash
+cd /mnt/nfs/TargetTracking
 chmod +x scripts/load_ko.sh build/sample_target_tracking
 
 # 加载内核模块
-./scripts/load_ko.sh
+sh ./scripts/load_ko.sh
 
-# 运行
-./build/sample_target_tracking ./model/data/nnie_model/yolov3.wk 8080 ./web
+# 运行程序
+./build/sample_target_tracking ./data/nnie_model/yolov3.wk 8080 ./web
 ```
+
+> **注意:** `load_ko.sh` 会自动从 `/ko/` 目录加载SDK内核模块。如果模块目录不在 `/ko/`，可通过环境变量指定: `KO_DIR=/path/to/ko sh ./scripts/load_ko.sh`
 
 ### 访问Web页面
 

@@ -205,3 +205,88 @@ for (s = 0; s < YOLO3_SCALE_NUM && s < u32DstNum; s++) {
 3. 告警功能：检测到特定目标时触发告警
 4. 深度追踪：使用DeepSORT等算法
 5. 多模型切换：支持运行时切换不同.wk模型
+
+---
+
+## 7. 部署工作流
+
+### 7.1 完整部署步骤
+
+```
+开发主机                          开发板
+┌─────────────┐                 ┌─────────────────┐
+│ 交叉编译     │                 │                  │
+│ make         │                 │                  │
+│      ↓       │                 │                  │
+│ build/       │ ──scp/nfs──→   │ /mnt/nfs/        │
+│ sample_...   │                 │   TargetTracking/│
+│              │                 │   ├── build/     │
+│ SDK mpp/ko/  │ ──scp──────→   │   ├── scripts/   │
+│              │                 │   ├── model/     │
+│              │                 │   ├── web/       │
+│              │                 │   └── /ko/       │
+└─────────────┘                 └─────────────────┘
+```
+
+### 7.2 开发板文件布局
+
+```
+/mnt/nfs/TargetTracking/          # 项目目录(NFS挂载)
+├── build/sample_target_tracking  # ARM可执行文件
+├── scripts/load_ko.sh            # 内核模块加载脚本
+├── model/data/nnie_model/yolov3.wk  # NNIE模型
+└── web/index.html                # 前端页面
+
+/ko/                              # SDK内核模块(从SDK复制)
+├── sys_config.ko
+├── hi_osal.ko                    # MMZ内存管理
+├── hi3516cv500_base.ko
+├── hi3516cv500_sys.ko
+├── hi3516cv500_vi.ko
+├── hi3516cv500_isp.ko
+├── hi3516cv500_vpss.ko
+├── hi3516cv500_nnie.ko
+├── hi3516cv500_tde.ko
+├── hi3516cv500_venc.ko
+├── hi3516cv500_vo.ko
+├── hi3516cv500_ive.ko
+├── hi_mipi_rx.ko
+└── extdrv/
+    ├── hi_sensor_i2c.ko
+    └── hi_sensor_spi.ko
+```
+
+### 7.3 内核模块加载顺序
+
+模块加载必须遵循严格的依赖顺序（参考SDK官方 `load3516dv300` 脚本）：
+
+```
+1. sys_config.ko          芯片/传感器配置（必须最先加载）
+2. hi_osal.ko             OS抽象层 + MMZ内存（替代旧版mmz.ko）
+3. hi3516cv500_base.ko    基础驱动
+4. hi3516cv500_sys.ko     系统模块（VB缓存池）
+5. hi3516cv500_vi.ko      视频输入
+   hi3516cv500_isp.ko     图像信号处理
+   hi_mipi_rx.ko          MIPI接收器
+   extdrv/hi_sensor_*.ko  传感器I2C/SPI驱动
+6. hi3516cv500_vpss.ko    视频处理子系统
+7. hi3516cv500_nnie.ko    NNIE推理引擎
+8. hi3516cv500_tde.ko     2D图形引擎
+   hi3516cv500_venc.ko    视频编码器
+   hi3516cv500_vo.ko      视频输出
+9. hi3516cv500_ive.ko     IVE智能视频分析
+   hi3516cv500_svprt.ko   SVP运行时
+```
+
+### 7.4 MMZ内存规划
+
+| DDR容量 | OS内存 | MMZ起始 | MMZ大小 | 适用场景 |
+|---------|--------|---------|---------|---------|
+| 256MB | 64MB | 0x84000000 | 192MB | 本项目默认 |
+| 512MB | 128MB | 0x88000000 | 384MB | SDK默认配置 |
+
+MMZ内存用途分配：
+- NNIE Task Buffer: ~16MB（模型推理工作区）
+- VI/VPSS帧缓存: ~50MB（视频帧缓冲）
+- VENC编码缓存: ~20MB（编码输出缓冲）
+- 其他MPP模块: ~106MB
