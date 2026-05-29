@@ -232,28 +232,28 @@ for (s = 0; s < YOLO3_SCALE_NUM && s < u32DstNum; s++) {
 
 ```
 /mnt/nfs/TargetTracking/          # 项目目录(NFS挂载)
-├── build/sample_target_tracking  # ARM可执行文件
+├── build/
+│   ├── sample_target_tracking    # 主程序
+│   └── test_vio                  # VIO测试程序
 ├── scripts/load_ko.sh            # 内核模块加载脚本
 ├── model/data/nnie_model/yolov3.wk  # NNIE模型
-└── web/index.html                # 前端页面
+├── web/index.html                # 前端页面
+└── ko/                           # SDK内核模块(从SDK复制)
+    ├── load3516dv300             # SDK官方加载脚本
+    ├── sys_config.ko
+    ├── hi_osal.ko                # MMZ内存管理
+    ├── hi3516cv500_base.ko
+    ├── hi3516cv500_sys.ko
+    ├── hi3516cv500_vi.ko
+    ├── hi3516cv500_isp.ko
+    ├── hi3516cv500_vpss.ko
+    ├── hi3516cv500_nnie.ko
+    └── ...
+```
 
-/ko/                              # SDK内核模块(从SDK复制)
-├── sys_config.ko
-├── hi_osal.ko                    # MMZ内存管理
-├── hi3516cv500_base.ko
-├── hi3516cv500_sys.ko
-├── hi3516cv500_vi.ko
-├── hi3516cv500_isp.ko
-├── hi3516cv500_vpss.ko
-├── hi3516cv500_nnie.ko
-├── hi3516cv500_tde.ko
-├── hi3516cv500_venc.ko
-├── hi3516cv500_vo.ko
-├── hi3516cv500_ive.ko
-├── hi_mipi_rx.ko
-└── extdrv/
-    ├── hi_sensor_i2c.ko
-    └── hi_sensor_spi.ko
+板级启动脚本 `/etc/profile` 通过 `load3516dv300` 加载模块:
+```bash
+cd /mnt/nfs/TargetTracking/ko && ./load3516dv300 -i -sensor gc2053 -osmem 128 -total 512
 ```
 
 ### 7.3 内核模块加载顺序
@@ -280,29 +280,28 @@ for (s = 0; s < YOLO3_SCALE_NUM && s < u32DstNum; s++) {
 
 ### 7.4 MMZ内存规划
 
-| DDR容量 | OS内存 | MMZ起始 | MMZ大小 | 适用场景 |
-|---------|--------|---------|---------|---------|
-| 256MB | 64MB | 0x84000000 | 192MB | 本项目默认 |
-| 512MB | 128MB | 0x88000000 | 384MB | SDK默认配置 |
+| DDR容量 | -total参数 | OS内存 | MMZ大小 | 适用场景 |
+|---------|-----------|--------|---------|---------|
+| 1GB | 512 | 128MB | 384MB | 本项目配置 |
+| 1GB | 1024 | 128MB | 896MB | 充裕配置 |
+| 256MB | 256 | 128MB | 128MB | 最小配置 |
 
 MMZ内存用途分配：
+- NNIE模型: ~60MB（YOLOv3 .wk文件加载）
 - NNIE Task Buffer: ~16MB（模型推理工作区）
 - VI/VPSS帧缓存: ~50MB（视频帧缓冲）
-- VENC编码缓存: ~20MB（编码输出缓冲）
-- 其他MPP模块: ~106MB
+- 其他MPP模块: ~258MB
 
-### 7.5 板级启动与模块重载
+### 7.5 板级启动配置
 
-开发板启动时会自动加载内核模块，使用板级默认MMZ配置（通常是0x88000000, 128MB）。这导致:
-
-1. 我们的脚本检测到模块已加载，跳过加载
-2. MMZ使用板级默认配置，不是我们需要的0x84000000, 192MB
-3. NNIE分配Task Buffer时因MMZ空间不足而失败
-
-**解决方案:** `load_ko.sh` 支持 `--force` 参数，先卸载所有模块再重新加载:
+开发板通过 `/etc/profile` 中的 `load3516dv300` 命令加载内核模块。配置修改需编辑此文件后重启:
 
 ```bash
-sh ./scripts/load_ko.sh --force
+# 编辑启动脚本
+vi /etc/profile
+# 修改 load3516dv300 参数
+# 保存后重启
+reboot
 ```
 
-脚本会自动检测MMZ配置是否匹配，不匹配时自动执行卸载重载。
+**不要在运行时卸载内核模块**，海思MPP模块依赖复杂，运行时卸载极易导致Kernel Panic。

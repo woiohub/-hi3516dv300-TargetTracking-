@@ -106,7 +106,8 @@ TargetTracking/
 │   ├── video_capture.c/.h      # 视频采集
 │   ├── nnie_inference.c/.h     # NNIE推理
 │   ├── tracker.c/.h            # 目标追踪
-│   └── web_server.c/.h         # Web服务器
+│   ├── web_server.c/.h         # Web服务器
+│   └── test_vio.c              # VIO硬件通路测试
 ├── include/
 │   └── common.h                # 公共定义
 ├── web/
@@ -142,10 +143,12 @@ TargetTracking/
 ```
 PC: make 编译
     ↓
-PC: scp SDK mpp/ko/ → 开发板 /ko/
-PC: scp 项目文件 → 开发板 /mnt/nfs/TargetTracking/
+PC: scp SDK mpp/ko/ → 开发板 /mnt/nfs/TargetTracking/ko/
     ↓
-开发板: sh ./scripts/load_ko.sh  (加载内核模块)
+开发板: 编辑 /etc/profile，修改 load3516dv300 参数
+开发板: reboot
+    ↓
+开发板: (可选) ./build/test_vio  测试硬件通路
 开发板: ./build/sample_target_tracking ./model/data/nnie_model/yolov3.wk 8080 ./web
     ↓
 浏览器: http://<开发板IP>:8080

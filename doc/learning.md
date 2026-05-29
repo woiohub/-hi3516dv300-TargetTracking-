@@ -469,42 +469,35 @@ hi3516cv500_nnie.ko  ← NNIE推理引擎（依赖MMZ）
 
 ### 9.2 板级启动与MMZ配置
 
-开发板在启动时会通过系统初始化脚本（如 `/etc/init.d/rcS`）自动加载内核模块，使用的是板级默认MMZ配置。这意味着:
-
-1. **所有模块在启动时已加载** — 我们的脚本检测到模块已加载会跳过
-2. **MMZ使用板级默认配置** — 通常是 `0x88000000, 128MB`，而不是我们需要的 `0x84000000, 192MB`
-3. **hi_osal.ko 不会重新加载** — insmod 检测到已加载会返回错误
-
-**为什么板级默认128MB不够?**
-
-板级默认配置的128MB MMZ中，启动时已分配了大量内存（ISP、VPSS、hifb等），剩余空间不足以满足NNIE的Task Buffer分配（~15MB）。
-
-**解决方案:**
-
-必须先卸载所有模块，再用我们的配置重新加载:
+开发板通过 `/etc/profile` 中的 `load3516dv300` 命令自动加载内核模块。关键参数:
 
 ```bash
-# 自动检测MMZ配置，不匹配时自动重载
-sh ./scripts/load_ko.sh
-
-# 或强制重载
-sh ./scripts/load_ko.sh --force
+cd /mnt/nfs/TargetTracking/ko && ./load3516dv300 -i -sensor gc2053 -osmem 128 -total 512
 ```
 
-卸载顺序（严格按照SDK官方 remove_ko() 函数）:
+| 参数 | 含义 | 本项目配置 |
+|------|------|-----------|
+| `-sensor` | 传感器类型 | gc2053 |
+| `-osmem` | Linux内存(MB) | 128 |
+| `-total` | DDR总容量(MB) | 512 |
+| MMZ | 自动计算 | 512 - 128 = 384MB |
+
+**内存规划（1GB DDR，配置512MB）：**
 ```
-音频: acodec → adec → aenc → ao → ai → aio
-外设: mipi_rx → piris → pwm
-NNIE: nnie → ive → svprt
-解码: jpegd → vfmw → vdec
-编码: rc → jpege → h264e → h265e → venc → vedu → chnl
-显示: hifb → vo → hdmi
-视频: vpss → isp → vi → gdc → dis → vgs → rgn → tde
-传感器: sensor_i2c → sensor_spi
-系统: sys → base → hi_osal → sys_config
+0x80000000 ┌─────────────────────┐
+           │ Linux内核+用户空间   │ 128MB
+0x88000000 ├─────────────────────┤
+           │ MMZ区域              │ 384MB
+           │  ├── NNIE模型: 60MB  │
+           │  ├── NNIE Task: 16MB │
+           │  ├── VI/VPSS: 50MB   │
+           │  └── 其他: 258MB     │
+0xA0000000 └─────────────────────┘
 ```
 
-**重要警告:** 运行时卸载模块可能导致Kernel Panic。建议重启开发板后立即执行 `--force`。
+**注意:** 不要在运行时卸载内核模块，极易导致Kernel Panic。修改配置后重启即可。
+
+### 9.3 MMZ内存管理
 
 MMZ（Media Memory Zone）是海思芯片特有的物理连续内存管理机制：
 
@@ -513,21 +506,23 @@ MMZ（Media Memory Zone）是海思芯片特有的物理连续内存管理机制
 | 用途 | NNIE模型加载、VI/VPSS帧缓存、VENC编码缓存 |
 | 分配方式 | 物理连续内存，通过 `HI_MPI_SYS_MmzAlloc` 分配 |
 | 地址空间 | 独立于Linux内核管理的内存 |
-| 典型大小 | 192MB~384MB（取决于DDR总容量） |
 
-**内存规划（256MB DDR）：**
-```
-0x80000000 ┌─────────────────────┐
-           │ Linux内核+用户空间   │ 64MB
-0x84000000 ├─────────────────────┤
-           │ MMZ区域              │ 192MB
-           │  ├── NNIE Task: 16MB │
-           │  ├── VI/VPSS: 50MB   │
-           │  └── 其他: 126MB     │
-0x90000000 └─────────────────────┘
-```
+### 9.4 VI/VPSS管道配置
 
-### 9.4 部署流程
+VI（视频输入）到VPSS（视频处理子系统）的管道有多种模式:
+
+| 模式 | 说明 | 适用场景 |
+|------|------|---------|
+| `VI_ONLINE_VPSS_ONLINE` | VI和VPSS硬件直连 | 默认模式，延迟最低 |
+| `VI_OFFLINE_VPSS_OFFLINE` | 通过DDR传递帧 | 需要灵活处理时 |
+| `VI_OFFLINE_VPSS_ONLINE` | VI离线，VPSS在线 | 混合场景 |
+| `VI_ONLINE_VPSS_OFFLINE` | VI在线，VPSS离线 | 混合场景 |
+
+**本项目使用 `VI_ONLINE_VPSS_ONLINE`**，与板级ISP配置一致。
+
+在online模式下，VI到VPSS的绑定是硬件自动的，不需要手动调用 `SAMPLE_COMM_VI_Bind_VPSS`。
+
+### 9.5 部署流程
 
 SDK的内核模块文件位于开发主机的SDK目录中：
 ```
@@ -536,10 +531,10 @@ SDK的内核模块文件位于开发主机的SDK目录中：
 
 需要将整个 `ko/` 目录复制到开发板：
 ```bash
-scp -r <SDK_PATH>/smp/a7_linux/mpp/ko/ root@<board_ip>:/ko/
+scp -r <SDK_PATH>/smp/a7_linux/mpp/ko/ root@<board_ip>:/mnt/nfs/TargetTracking/ko/
 ```
 
-### 9.5 常用排查命令
+### 9.6 常用排查命令
 
 ```bash
 # 查看已加载模块
@@ -548,9 +543,15 @@ lsmod
 # 查看MMZ内存使用情况
 cat /proc/media-mem
 
-# 查看MMZ区域信息
-cat /proc/himedia/mmz
+# 查看VI状态(帧计数、错误等)
+cat /proc/umap/vi
+
+# 查看VPSS状态(通道配置、帧统计)
+cat /proc/umap/vpss
 
 # 查看内核日志（模块加载错误）
 dmesg | tail -50
+
+# VIO硬件通路测试
+./build/test_vio
 ```
