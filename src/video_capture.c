@@ -90,7 +90,7 @@ HI_S32 VIDEO_CAPTURE_Init(VIDEO_CAPTURE_CTX_S* pstCtx)
     pstCtx->ViPipe = 0;
     pstCtx->ViChn = 0;
     pstCtx->VpssGrp = 0;
-    pstCtx->VpssChn = VPSS_CHN0;
+    pstCtx->VpssChn = VPSS_CHN1;  /* 通道1: 416x416 NNIE输入 */
     pstCtx->stNnieSize.u32Width = NNIE_INPUT_WIDTH;
     pstCtx->stNnieSize.u32Height = NNIE_INPUT_HEIGHT;
     pstCtx->bStarted = HI_FALSE;
@@ -185,7 +185,7 @@ HI_S32 VIDEO_CAPTURE_Init(VIDEO_CAPTURE_CTX_S* pstCtx)
     astVpssChnAttr[VPSS_CHN0].enCompressMode = enCompressMode;
     astVpssChnAttr[VPSS_CHN0].stFrameRate.s32SrcFrameRate = VIDEO_FPS;
     astVpssChnAttr[VPSS_CHN0].stFrameRate.s32DstFrameRate = VIDEO_FPS;
-    astVpssChnAttr[VPSS_CHN0].u32Depth = 1;
+    astVpssChnAttr[VPSS_CHN0].u32Depth = 2;
     abChnEnable[VPSS_CHN0] = HI_TRUE;
 
     /* VPSS通道1: NNIE推理尺寸(416x416) */
@@ -198,7 +198,7 @@ HI_S32 VIDEO_CAPTURE_Init(VIDEO_CAPTURE_CTX_S* pstCtx)
     astVpssChnAttr[VPSS_CHN1].enCompressMode = enCompressMode;
     astVpssChnAttr[VPSS_CHN1].stFrameRate.s32SrcFrameRate = VIDEO_FPS;
     astVpssChnAttr[VPSS_CHN1].stFrameRate.s32DstFrameRate = INFER_FPS;
-    astVpssChnAttr[VPSS_CHN1].u32Depth = 1;
+    astVpssChnAttr[VPSS_CHN1].u32Depth = 2;
     abChnEnable[VPSS_CHN1] = HI_TRUE;
 
     /* 启动VPSS */
@@ -216,6 +216,10 @@ HI_S32 VIDEO_CAPTURE_Init(VIDEO_CAPTURE_CTX_S* pstCtx)
         LOG_ERROR("绑定VI到VPSS失败! s32Ret=0x%x", s32Ret);
         goto VPSS_STOP;
     }
+
+    /* 等待ISP稳定输出 */
+    LOG_INFO("等待ISP稳定...");
+    sleep(2);
 
     pstCtx->bStarted = HI_TRUE;
     LOG_INFO("视频采集模块初始化完成 (原始:%dx%d, NNIE:%dx%d)",
