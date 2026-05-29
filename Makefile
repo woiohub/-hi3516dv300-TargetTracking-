@@ -94,10 +94,16 @@ CFLAGS += -DISP_V2
 CFLAGS += -DHI_ACODEC_TYPE_INNER
 CFLAGS += $(INC_FLAGS)
 
-.PHONY: all clean install
+.PHONY: all clean install test
 
 all: $(TARGET)
 	@echo "编译完成: $(TARGET)"
+
+test: $(BUILD_DIR)/test_vio
+	@echo "编译完成: $(BUILD_DIR)/test_vio"
+
+$(BUILD_DIR)/test_vio: $(BUILD_DIR)/test_vio.o $(SDK_COMMON_OBJS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -o $@ $^ $(STATIC_LIBS) -lpthread -lm -ldl
 
 $(TARGET): $(OBJS) $(SDK_COMMON_OBJS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -o $@ $^ $(STATIC_LIBS) -lpthread -lm -ldl
@@ -108,6 +114,9 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 # SDK公共源文件
 $(BUILD_DIR)/sdk/%.o: $(SDK_PATH)/%.c | $(BUILD_DIR)/sdk
 	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/test_vio.o: $(SRC_DIR)/test_vio.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR):
